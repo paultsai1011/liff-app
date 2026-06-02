@@ -41,75 +41,117 @@
     </div>
 
     <script>
-const LIFF_ID = '2010274192-bsUPl00M'; 
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbyXwY2JgUBlyJemSFEnEKTQfrT2dypjpSIVn74BH9WJRp4Jcf5-6TkNiR4MPqe2OfpJ/exec';
+        const LIFF_ID = '2010274192-bsUPl00M'; 
+        const GAS_URL = 'https://script.google.com/macros/s/AKfycbyXwY2JgUBlyJemSFEnEKTQfrT2dypjpSIVn74BH9WJRp4Jcf5-6TkNiR4MPqe2OfpJ/exec';
 
-let userId = '';
-let userName = '';
+        let userId = '';
+        let userName = '';
 
-async function initLIFF() {
-    try {
-        // 第一步：純粹初始化 LINE LIFF
-        await liff.init({ liffId: LIFF_ID });
-        
-        if (!liff.isLoggedIn()) {
-            liff.login();
-            return;
-        }
-        
-        const profile = await liff.getProfile();
-        userId = profile.userId;
-        userName = profile.displayName;
-        
-        document.getElementById('userName').innerText = userName;
-        document.getElementById('loading').style.display = 'none';
-        document.getElementById('app').style.display = 'block';
-        
-    } catch (error) {
-        alert('【步驟 A 失敗】LINE LIFF 初始化或登入失敗: ' + error);
-        return;
-    }
-
-    // 第二步：LIFF 登入成功後，才單獨去呼叫 GAS
-    await loadUsers();
-}
-
-async function loadUsers() {
-    try {
-        const params = new URLSearchParams({
-            action: 'getUsers',
-            userId: userId,
-            userName: userName
-        });
-        
-        // 加上 mode: 'cors' 確保跨網域安全性
-        const response = await fetch(`${GAS_URL}?${params.toString()}`, {
-            method: 'GET',
-            mode: 'cors'
-        });
-        
-        const data = await response.json();
-        
-        const select = document.getElementById('coverUser');
-        select.innerHTML = '<option value="">-- 請選擇代班同仁 --</option>'; 
-        
-        data.forEach(user => {
-            if (user.id !== userId) {
-                const opt = document.createElement('option');
-                opt.value = user.id;
-                opt.innerText = user.name;
-                select.appendChild(opt);
+        async function initLIFF() {
+            try {
+                // 第一步：純粹初始化 LINE LIFF
+                await liff.init({ liffId: LIFF_ID });
+                
+                if (!liff.isLoggedIn()) {
+                    liff.login();
+                    return;
+                }
+                
+                const profile = await liff.getProfile();
+                userId = profile.userId;
+                userName = profile.displayName;
+                
+                document.getElementById('userName').innerText = userName;
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('app').style.display = 'block';
+                
+            } catch (error) {
+                alert('【步驟 A 失敗】LINE LIFF 初始化或登入失敗: ' + error);
+                return;
             }
-        });
-    } catch (e) {
-        // 如果是這裡失敗，會彈出這個提示，我們就能精準抓到是 GAS 連不上的問題
-        alert('【步驟 B 失敗】連線到 Google 系統失敗（Failed to fetch）。請確認 GAS 網址是否正確並已公開發布！錯誤訊息: ' + e);
-    }
-}
 
-window.onload = function() {
-    initLIFF();
-};
+            // 第二步：LIFF 登入成功後，才單獨去呼叫 GAS
+            await loadUsers();
+        }
+
+        async function loadUsers() {
+            try {
+                const params = new URLSearchParams({
+                    action: 'getUsers',
+                    userId: userId,
+                    userName: userName
+                });
+                
+                const response = await fetch(`${GAS_URL}?${params.toString()}`, {
+                    method: 'GET',
+                    mode: 'cors'
+                });
+                
+                const data = await response.json();
+                
+                const select = document.getElementById('coverUser');
+                select.innerHTML = '<option value="">-- 請選擇代班同仁 --</option>'; 
+                
+                data.forEach(user => {
+                    if (user.id !== userId) {
+                        const opt = document.createElement('option');
+                        opt.value = user.id;
+                        opt.innerText = user.name;
+                        select.appendChild(opt);
+                    }
+                });
+            } catch (e) {
+                alert('【步驟 B 失敗】連線到 Google 系統失敗（Failed to fetch）。請確認 GAS 網址是否正確並已公開發布！錯誤訊息: ' + e);
+            }
+        }
+
+        // 🛠️ 補上送出表單的完整功能
+        async function submitForm() {
+            const leaveDate = document.getElementById('leaveDate').value;
+            const coverUser = document.getElementById('coverUser').value;
+            
+            if (!leaveDate || !coverUser) {
+                alert('請填寫完整日期與選擇代班人！');
+                return;
+            }
+
+            // 停用按鈕防止重複點擊
+            document.getElementById('submitBtn').disabled = true;
+            document.getElementById('submitBtn').innerText = '申請送出中...';
+
+            const payload = {
+                action: 'applyLeave',
+                userId: userId,
+                leaveDate: leaveDate,
+                coverUser: coverUser
+            };
+
+            try {
+                // 用 POST 發送給 GAS
+                const response = await fetch(GAS_URL, {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    alert('🎉 申請成功！已自動發送確認訊息給代班同仁。');
+                    liff.closeWindow(); // 自動關閉 LIFF 視窗
+                } else {
+                    alert('❌ 申請失敗：' + (result.message || '未知錯誤'));
+                }
+            } catch (error) {
+                alert('💥 連線到 Google 系統發生錯誤: ' + error);
+            } finally {
+                // 還原按鈕狀態
+                document.getElementById('submitBtn').disabled = false;
+                document.getElementById('submitBtn').innerText = '送出請假申請';
+            }
+        }
+
+        window.onload = function() {
+            initLIFF();
+        };
     </script>
 </body>
 </html>
