@@ -41,100 +41,75 @@
     </div>
 
     <script>
-        const LIFF_ID = '2010274192-bsUPl00M'; 
-        const GAS_URL = 'https://script.google.com/macros/s/AKfycbyXwY2JgUBlyJemSFEnEKTQfrT2dypjpSIVn74BH9WJRp4Jcf5-6TkNiR4MPqe2OfpJ/exec';
+const LIFF_ID = '2010274192-bsUPl00M'; 
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbyXwY2JgUBlyJemSFEnEKTQfrT2dypjpSIVn74BH9WJRp4Jcf5-6TkNiR4MPqe2OfpJ/exec';
+
+let userId = '';
+let userName = '';
+
+async function initLIFF() {
+    try {
+        // 第一步：純粹初始化 LINE LIFF
+        await liff.init({ liffId: LIFF_ID });
         
-        let userId = '';
-        let userName = '';
-
-        async function initLIFF() {
-            try {
-                await liff.init({ liffId: LIFF_ID });
-                if (!liff.isLoggedIn()) {
-                    liff.login();
-                } else {
-                    const profile = await liff.getProfile();
-                    userId = profile.userId;
-                    userName = profile.displayName;
-                    
-                    document.getElementById('userName').innerText = userName;
-                    document.getElementById('loading').style.display = 'none';
-                    document.getElementById('app').style.display = 'block';
-                    
-                    // 初始化時先向 GAS 註冊/更新使用者，並取得所有人選清單
-                    await loadUsers();
-                }
-            } catch (error) {
-                alert('LIFF 初始化失敗: ' + error);
-            }
+        if (!liff.isLoggedIn()) {
+            liff.login();
+            return;
         }
+        
+        const profile = await liff.getProfile();
+        userId = profile.userId;
+        userName = profile.displayName;
+        
+        document.getElementById('userName').innerText = userName;
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('app').style.display = 'block';
+        
+    } catch (error) {
+        alert('【步驟 A 失敗】LINE LIFF 初始化或登入失敗: ' + error);
+        return;
+    }
 
-        // 取得所有使用者選單
-        async function loadUsers() {
-            try {
-                // 同時把當前登入者資訊丟給 GAS 做綁定
-                const response = await fetch(`${GAS_URL}?action=getUsers&userId=${userId}&userName=${encodeURIComponent(userName)}`);
-                const data = await response.json();
-                
-                const select = document.getElementById('coverUser');
-                data.forEach(user => {
-                    // 排除掉自己，自己不能代自己的班
-                    if (user.id !== userId) {
-                        const opt = document.createElement('option');
-                        opt.value = user.id;
-                        opt.innerText = user.name;
-                        select.appendChild(opt);
-                    }
-                });
-            } catch (e) {
-                alert('載入使用者清單失敗: ' + e);
+    // 第二步：LIFF 登入成功後，才單獨去呼叫 GAS
+    await loadUsers();
+}
+
+async function loadUsers() {
+    try {
+        const params = new URLSearchParams({
+            action: 'getUsers',
+            userId: userId,
+            userName: userName
+        });
+        
+        // 加上 mode: 'cors' 確保跨網域安全性
+        const response = await fetch(`${GAS_URL}?${params.toString()}`, {
+            method: 'GET',
+            mode: 'cors'
+        });
+        
+        const data = await response.json();
+        
+        const select = document.getElementById('coverUser');
+        select.innerHTML = '<option value="">-- 請選擇代班同仁 --</option>'; 
+        
+        data.forEach(user => {
+            if (user.id !== userId) {
+                const opt = document.createElement('option');
+                opt.value = user.id;
+                opt.innerText = user.name;
+                select.appendChild(opt);
             }
-        }
+        });
+    } catch (e) {
+        // 如果是這裡失敗，會彈出這個提示，我們就能精準抓到是 GAS 連不上的問題
+        alert('【步驟 B 失敗】連線到 Google 系統失敗（Failed to fetch）。請確認 GAS 網址是否正確並已公開發布！錯誤訊息: ' + e);
+    }
+}
 
-        // 送出表單
-        async function submitForm() {
-            const leaveDate = document.getElementById('leaveDate').value;
-            const coverUser = document.getElementById('coverUser').value;
-            
-            if (!leaveDate || !coverUser) {
-                alert('請填寫完整日期與代班人！');
-                return;
-            }
-
-            document.getElementById('submitBtn').disabled = true;
-
-            const payload = {
-                action: 'applyLeave',
-                userId: userId,
-                leaveDate: leaveDate,
-                coverUser: coverUser
-            };
-
-            try {
-                // 改用 POST 送出請求給 GAS
-                const response = await fetch(GAS_URL, {
-                    method: 'POST',
-                    body: JSON.stringify(payload)
-                });
-                const result = await response.json();
-                
-                if (result.status === 'success') {
-                    alert('申請成功！已發送通知給代班人。');
-                    liff.closeWindow(); // 關閉 LIFF 視窗
-                } else {
-                    alert('申請失敗：' + result.message);
-                }
-            } catch (error) {
-                alert('連線錯誤: ' + error);
-            } finally {
-                document.getElementById('submitBtn').disabled = false;
-            }
-        }
-
-        // 啟動
-        window.onload = function() {
-            initLIFF();
-        };
+window.onload = function() {
+    initLIFF();
+};
     </script>
 </body>
 </html>
