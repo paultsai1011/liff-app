@@ -1,32 +1,140 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>排班請假代班系統</title>
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; box-sizing: border-box; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input, select, button { width: 100%; padding: 10px; font-size: 16px; margin-top: 5px; }
+        button { background-color: #06C755; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        button:disabled { background-color: #ccc; }
+        #loading { color: #666; font-style: italic; }
+    </style>
 </head>
 <body>
-    <h2 id="msg">初始化中...</h2>
+
+    <h2>排班請假申請</h2>
+    <div id="loading">LINE 登入中，請稍候...</div>
+
+    <div id="app" style="display: none;">
+        <div class="form-group">
+            <label>請假人：<span id="userName">載入中...</span></label>
+        </div>
+        
+        <div class="form-group">
+            <label for="leaveDate">選擇請假日期：</label>
+            <input type="date" id="leaveDate" required>
+        </div>
+
+        <div class="form-group">
+            <label for="coverUser">選擇代班人：</label>
+            <select id="coverUser" required>
+                <option value="">-- 請選擇代班同仁 --</option>
+            </select>
+        </div>
+
+        <button id="submitBtn" onclick="submitForm()">送出請假申請</button>
+    </div>
+
     <script>
-        // 請確認這裡的 ID 是你那組正確的 LIFF ID
-        liff.init({ liffId: "2010274192-bsUPl00M" })
-            .then(() => {
+        const LIFF_ID = '2010274192-bsUPl00M'; 
+        const GAS_URL = 'https://script.google.com/macros/s/AKfycbyXwY2JgUBlyJemSFEnEKTQfrT2dypjpSIVn74BH9WJRp4Jcf5-6TkNiR4MPqe2OfpJ/exec';
+        
+        let userId = '';
+        let userName = '';
+
+        async function initLIFF() {
+            try {
+                await liff.init({ liffId: LIFF_ID });
                 if (!liff.isLoggedIn()) {
                     liff.login();
                 } else {
-                    const uid = liff.getDecodedIDToken().sub;
-                    document.getElementById('msg').innerText = "成功！UID: " + uid;
+                    const profile = await liff.getProfile();
+                    userId = profile.userId;
+                    userName = profile.displayName;
                     
-                    // 這邊改成你的 Google Apps Script 部署網址 (doPost 那個)
-                    fetch("https://script.google.com/macros/s/AKfycbyXwY2JgUBlyJemSFEnEKTQfrT2dypjpSIVn74BH9WJRp4Jcf5-6TkNiR4MPqe2OfpJ/exec", {
-                        method: "POST",
-                        mode: "no-cors",
-                        body: JSON.stringify({ userId: uid, displayName: liff.getProfile().displayName })
-                    });
+                    document.getElementById('userName').innerText = userName;
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('app').style.display = 'block';
+                    
+                    // 初始化時先向 GAS 註冊/更新使用者，並取得所有人選清單
+                    await loadUsers();
                 }
-            })
-            .catch(err => {
-                document.getElementById('msg').innerText = "錯誤: " + err.message;
-            });
+            } catch (error) {
+                alert('LIFF 初始化失敗: ' + error);
+            }
+        }
+
+        // 取得所有使用者選單
+        async function loadUsers() {
+            try {
+                // 同時把當前登入者資訊丟給 GAS 做綁定
+                const response = await fetch(`${GAS_URL}?action=getUsers&userId=${userId}&userName=${encodeURIComponent(userName)}`);
+                const data = await response.json();
+                
+                const select = document.getElementById('coverUser');
+                data.forEach(user => {
+                    // 排除掉自己，自己不能代自己的班
+                    if (user.id !== userId) {
+                        const opt = document.createElement('option');
+                        opt.value = user.id;
+                        opt.innerText = user.name;
+                        select.appendChild(opt);
+                    }
+                });
+            } catch (e) {
+                alert('載入使用者清單失敗: ' + e);
+            }
+        }
+
+        // 送出表單
+        async function submitForm() {
+            const leaveDate = document.getElementById('leaveDate').value;
+            const coverUser = document.getElementById('coverUser').value;
+            
+            if (!leaveDate || !coverUser) {
+                alert('請填寫完整日期與代班人！');
+                return;
+            }
+
+            document.getElementById('submitBtn').disabled = true;
+
+            const payload = {
+                action: 'applyLeave',
+                userId: userId,
+                leaveDate: leaveDate,
+                coverUser: coverUser
+            };
+
+            try {
+                // 改用 POST 送出請求給 GAS
+                const response = await fetch(GAS_URL, {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    alert('申請成功！已發送通知給代班人。');
+                    liff.closeWindow(); // 關閉 LIFF 視窗
+                } else {
+                    alert('申請失敗：' + result.message);
+                }
+            } catch (error) {
+                alert('連線錯誤: ' + error);
+            } finally {
+                document.getElementById('submitBtn').disabled = false;
+            }
+        }
+
+        // 啟動
+        window.onload = function() {
+            initLIFF();
+        };
     </script>
 </body>
 </html>
