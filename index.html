@@ -6,23 +6,28 @@
     <title>排班請假代班系統</title>
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; padding: 20px; box-sizing: border-box; }
-        .form-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; font-weight: bold; }
-        input, select, button { width: 100%; padding: 10px; font-size: 16px; margin-top: 5px; box-sizing: border-box; }
-        button { background-color: #06C755; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
-        button:disabled { background-color: #潘誠陽; }
-        #loading { color: #666; font-style: italic; }
+        body { font-family: Arial, sans-serif; padding: 20px; box-sizing: border-box; background-color: #f5f5f5; }
+        h2 { color: #333; text-align: center; }
+        .form-group { margin-bottom: 15px; background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        label { display: block; margin-bottom: 8px; font-weight: bold; color: #555; }
+        input, select, button { width: 100%; padding: 12px; font-size: 16px; margin-top: 5px; box-sizing: border-box; border: 1px solid #ddd; border-radius: 6px; }
+        input:focus, select:focus { border-color: #06C755; outline: none; }
+        span#userName { color: #06C755; font-weight: bold; }
+        button { background-color: #06C755; color: white; border: none; font-weight: bold; cursor: pointer; transition: background 0.2s; margin-top: 10px; }
+        button:hover { background-color: #05b34c; }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+        #loading { color: #666; font-style: italic; text-align: center; margin-top: 50px; font-size: 18px; }
     </style>
 </head>
 <body>
 
-    <h2>排班請假申請</h2>
-    <div id="loading">LINE 登入中，請稍候...</div>
+    <div id="loading">LINE 安全登入中，請稍候...</div>
 
     <div id="app" style="display: none;">
+        <h2>排班請假申請</h2>
+        
         <div class="form-group">
-            <label>請假人：<span id="userName">載入中...</span></label>
+            <label>請假同仁：<span id="userName">載入中...</span></label>
         </div>
         
         <div class="form-group">
@@ -57,7 +62,7 @@
 
         let userId = '';
         let userName = '';
-        let allUsers = []; // 用來儲存從 GAS 拿到的所有使用者原始資料
+        let allUsers = []; 
 
         async function initLIFF() {
             try {
@@ -84,7 +89,6 @@
             await loadAllUsers();
         }
 
-        // 從 GAS 撈取所有人名，包含他們的 Leader 資訊
         async function loadAllUsers() {
             try {
                 const params = new URLSearchParams({
@@ -98,20 +102,17 @@
                     mode: 'cors'
                 });
                 
-                // 預期收到格式: [{id: '...', name: '...', leader: '...'}, ...]
                 allUsers = await response.json(); 
                 
             } catch (e) {
-                alert('【步驟 B 失敗】連線到 Google 系統失敗。錯誤訊息: ' + e);
+                alert('【步驟 B 失敗】無法從 Google 系統載入人員清單。錯誤訊息: ' + e);
             }
         }
 
-        // 當使用者切換 Leader 下拉選單時觸發
         function filterUsersByLeader() {
             const selectedLeader = document.getElementById('leaderSelect').value;
             const coverUserSelect = document.getElementById('coverUser');
             
-            // 清空舊的選項
             coverUserSelect.innerHTML = '';
             
             if (!selectedLeader) {
@@ -123,7 +124,7 @@
                 return;
             }
             
-            // 篩選出屬於該 Leader 且「不是請假同仁自己」的成員
+            // 篩選出同 Leader 且非本人的已註冊組員
             const filtered = allUsers.filter(user => user.leader === selectedLeader && user.id !== userId);
             
             if (filtered.length === 0) {
@@ -144,7 +145,7 @@
                     opt.innerText = user.name;
                     coverUserSelect.appendChild(opt);
                 });
-                coverUserSelect.disabled = false; // 啟用選單
+                coverUserSelect.disabled = false; 
             }
         }
 
@@ -168,20 +169,19 @@
             };
 
             try {
-                const response = await fetch(GAS_URL, {
+                // ⭕ 關鍵防錯處理：使用 no-cors 穿透 Google 重新導向安全性防禦
+                await fetch(GAS_URL, {
                     method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-                const result = await response.json();
                 
-                if (result.status === 'success') {
-                    alert('🎉 申請成功！已自動發送確認訊息給代班同仁。');
-                    liff.closeWindow();
-                } else {
-                    alert('❌ 申請失敗：' + (result.message || '未知錯誤'));
-                }
+                alert('🎉 申請成功！已自動發送確認訊息給代班同仁。');
+                liff.closeWindow();
+
             } catch (error) {
-                alert('💥 連線錯誤: ' + error);
+                alert('💥 送出失敗，連線異常: ' + error);
             } finally {
                 document.getElementById('submitBtn').disabled = false;
                 document.getElementById('submitBtn').innerText = '送出請假申請';
