@@ -124,7 +124,6 @@
                 return;
             }
             
-            // 篩選出同 Leader 且非本人的已註冊組員
             const filtered = allUsers.filter(user => user.leader === selectedLeader && user.id !== userId);
             
             if (filtered.length === 0) {
@@ -149,6 +148,7 @@
             }
         }
 
+        // ⭕ 修正後的送出與防呆警告捕捉函式
         async function submitForm() {
             const leaveDate = document.getElementById('leaveDate').value;
             const coverUser = document.getElementById('coverUser').value;
@@ -159,7 +159,7 @@
             }
 
             document.getElementById('submitBtn').disabled = true;
-            document.getElementById('submitBtn').innerText = '申請送出中...';
+            document.getElementById('submitBtn').innerText = '安全檢查中...';
 
             const payload = {
                 action: 'applyLeave',
@@ -169,19 +169,26 @@
             };
 
             try {
-                // ⭕ 關鍵防錯處理：使用 no-cors 穿透 Google 重新導向安全性防禦
-                await fetch(GAS_URL, {
+                // 移除 no-cors，改用標準跨網域 fetch 接收 GAS 的防呆通知
+                const response = await fetch(GAS_URL, {
                     method: 'POST',
-                    mode: 'no-cors',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'text/plain' }, // 用文字通道傳輸避免發送不必要的 Preflight 請求
                     body: JSON.stringify(payload)
                 });
                 
-                alert('🎉 申請成功！已自動發送確認訊息給代班同仁。');
-                liff.closeWindow();
-
+                const result = await response.json();
+                
+                if (result.status === 'error') {
+                    // ⭕ 如果後端判定重複，精準彈出原因
+                    alert('⚠️ 申請攔截：' + result.message);
+                } else if (result.status === 'success') {
+                    alert('🎉 申請成功！已自動發送確認訊息給代班同仁。');
+                    liff.closeWindow();
+                }
             } catch (error) {
-                alert('💥 送出失敗，連線異常: ' + error);
+                // 如果碰到特殊跳轉，做保險提示，但正常狀況下在支援 CORS 後會走上面的 result 判定
+                console.error("傳輸詳情:", error);
+                alert('💥 送出時系統通訊異常，請確認試算表是否有寫入成功或重複登記。');
             } finally {
                 document.getElementById('submitBtn').disabled = false;
                 document.getElementById('submitBtn').innerText = '送出請假申請';
