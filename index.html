@@ -72,7 +72,7 @@
         const GAS_URL = 'https://script.google.com/macros/s/AKfycbyXwY2JgUBlyJemSFEnEKTQfrT2dypjpSIVn74BH9WJRp4Jcf5-6TkNiR4MPqe2OfpJ/exec';
 
         let userId = '';
-        let realName = ''; // 儲存從資料庫比對出來的真實姓名
+        let realName = ''; 
         let allUsers = []; 
         let isCancelMode = false;
 
@@ -93,7 +93,7 @@
                     await loadMySchedules(); 
                 } else {
                     document.getElementById('leaveApp').style.display = 'block';
-                    await loadAllUsers(); // 讀取全體人員並自動過濾找出真實姓名
+                    await loadAllUsers(); 
                 }
             } catch (error) {
                 alert('LINE 登入失敗: ' + error);
@@ -105,13 +105,12 @@
                 const response = await fetch(`${GAS_URL}?action=getusers&userId=${userId}`);
                 allUsers = await response.json(); 
                 
-                // ⭕ 核心修正：從已註冊同仁名單中，自動用目前使用者的 LINE ID 對比出「真實姓名」
+                // 自動用目前使用者的 LINE ID 對比出「真實姓名」
                 const currentUser = allUsers.find(user => user.id === userId);
                 if (currentUser) {
                     realName = currentUser.name;
                     document.getElementById('userName').innerText = realName;
                 } else {
-                    // 防呆：如果該 ID 根本還沒完成系統「註冊」，才顯示個人暱稱提示
                     const profile = await liff.getProfile();
                     document.getElementById('userName').innerText = profile.displayName + " (⚠️未完成「註冊」綁定)";
                 }
@@ -130,7 +129,6 @@
                 coverUserSelect.disabled = true;
                 return;
             }
-            // 下拉選單中過濾掉請假者本人
             const filtered = allUsers.filter(user => user.leader === selectedLeader && user.id !== userId);
             if (filtered.length === 0) {
                 coverUserSelect.innerHTML = '<option value="">❌ 該 Leader 底下目前無其他註冊同仁</option>';
@@ -161,7 +159,6 @@
                 const response = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify(payload) });
                 const result = await response.json();
                 if (result.status === 'error') { 
-                    // ⭕ 這裡會精準攔截後台傳回的「6/10 代班人當天已請假」等交叉防呆訊息並彈窗警告！
                     alert('⚠️ 申請攔截失敗：\n' + result.message); 
                 } 
                 else { alert('🎉 申請成功！已自動發送確認訊息給代班同仁。'); liff.closeWindow(); }
