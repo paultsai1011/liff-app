@@ -26,10 +26,11 @@
 
     <div id="loading">LINE 安全登入中...</div>
 
+    <!-- 介面一：排班請假申請 (經典二階層 Leader 連動友善介面) -->
     <div id="leaveApp" style="display: none;">
         <h2>排班請假申請</h2>
         <div class="form-group">
-            <label>請假同仁：<span id="userName">載入中...</span></label>
+            <label>請假同仁：<span id="userName">查詢真實姓名中...</span></label>
         </div>
         <div class="form-group">
             <label for="leaveDate">選擇請假日期：</label>
@@ -54,24 +55,24 @@
         <button id="submitBtn" onclick="submitForm()">送出請假申請</button>
     </div>
 
+    <!-- 介面二：排班自主異動中心 -->
     <div id="cancelApp" style="display: none;">
         <h2>排班自主異動中心</h2>
         <p style="color:#666; font-size:14px; line-height:1.4;">
             💡 請勾選您欲作廢的未來日期（撤回您的請假，或取消您答應的代班），系統將精準移除該天並自動通知對方同仁：
         </p>
         <div class="form-group" id="scheduleList" style="max-height: 280px; overflow-y: auto;">
-            </div>
+            <!-- 這裡會動態塞入未來可管理的排班 -->
+        </div>
         <button id="cancelBtn" style="background-color: #FF3B30;" onclick="submitCancel()">確認撤銷/作廢選取日期</button>
     </div>
 
     <script>
         const LIFF_ID = '2010274192-bsUPl00M'; 
-        
-        // ⚠️ 請將下方引號內的網址，完全替換成你目前 Google Apps Script (GAS) 畫面上「最新複製的網頁應用程式 exec 網址」！ ⚠️
         const GAS_URL = 'https://script.google.com/macros/s/AKfycbyXwY2JgUBlyJemSFEnEKTQfrT2dypjpSIVn74BH9WJRp4Jcf5-6TkNiR4MPqe2OfpJ/exec';
 
         let userId = '';
-        let userName = '';
+        let realName = ''; // 儲存從資料庫比對出來的真實姓名
         let allUsers = []; 
         let isCancelMode = false;
 
@@ -82,9 +83,7 @@
                 
                 const profile = await liff.getProfile();
                 userId = profile.userId;
-                userName = profile.displayName;
                 
-                document.getElementById('userName').innerText = userName;
                 document.getElementById('loading').style.display = 'none';
 
                 const urlParams = new URLSearchParams(window.location.search);
@@ -94,7 +93,7 @@
                     await loadMySchedules(); 
                 } else {
                     document.getElementById('leaveApp').style.display = 'block';
-                    await loadAllUsers();
+                    await loadAllUsers(); // 讀取全體人員並自動過濾找出真實姓名
                 }
             } catch (error) {
                 alert('LINE 登入失敗: ' + error);
@@ -103,11 +102,22 @@
 
         async function loadAllUsers() {
             try {
-                // 將 action 統一改為小寫，配合後台容錯
-                const response = await fetch(`${GAS_URL}?action=getusers&userId=${userId}&userName=${encodeURIComponent(userName)}`);
+                const response = await fetch(`${GAS_URL}?action=getusers&userId=${userId}`);
                 allUsers = await response.json(); 
+                
+                // ⭕ 核心修正：從已註冊同仁名單中，自動用目前使用者的 LINE ID 對比出「真實姓名」
+                const currentUser = allUsers.find(user => user.id === userId);
+                if (currentUser) {
+                    realName = currentUser.name;
+                    document.getElementById('userName').innerText = realName;
+                } else {
+                    // 防呆：如果該 ID 根本還沒完成系統「註冊」，才顯示個人暱稱提示
+                    const profile = await liff.getProfile();
+                    document.getElementById('userName').innerText = profile.displayName + " (⚠️未完成「註冊」綁定)";
+                }
             } catch (e) {
                 console.error(e);
+                document.getElementById('userName').innerText = "載入姓名失敗，請重新整理網頁";
             }
         }
 
@@ -120,6 +130,7 @@
                 coverUserSelect.disabled = true;
                 return;
             }
+            // 下拉選單中過濾掉請假者本人
             const filtered = allUsers.filter(user => user.leader === selectedLeader && user.id !== userId);
             if (filtered.length === 0) {
                 coverUserSelect.innerHTML = '<option value="">❌ 該 Leader 底下目前無其他註冊同仁</option>';
@@ -149,21 +160,20 @@
             try {
                 const response = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify(payload) });
                 const result = await response.json();
-                if (result.status === 'error') { alert('⚠️ 申請攔截：' + result.message); } 
+                if (result.status === 'error') { 
+                    // ⭕ 這裡會精準攔截後台傳回的「6/10 代班人當天已請假」等交叉防呆訊息並彈窗警告！
+                    alert('⚠️ 申請攔截失敗：\n' + result.message); 
+                } 
                 else { alert('🎉 申請成功！已自動發送確認訊息給代班同仁。'); liff.closeWindow(); }
             } catch (error) {
                 alert('🎉 申請成功！已將代班請求傳送給組員。'); liff.closeWindow();
             } finally { document.getElementById('submitBtn').disabled = false; }
         }
 
-        // ⭕ 完美防禦版：雙向未來日程載入
         async function loadMySchedules() {
             try {
-                // 改用全小寫的 action 確保後台 100% 識別
                 const response = await fetch(`${GAS_URL}?action=getmymanageablecovers&userId=${userId}`);
                 const rawData = await response.json();
-                
-                // 防爆處理：確保必定為 Array
                 const schedules = Array.isArray(rawData) ? rawData : [];
                 const container = document.getElementById('scheduleList');
                 container.innerHTML = '';
@@ -177,7 +187,6 @@
                 schedules.forEach(item => {
                     const div = document.createElement('div');
                     div.className = 'cancel-item';
-                    
                     let badge = item.role === 'leave' ? '📤 [您的請假]' : '📥 [您的代班]';
                     let targetInfo = item.role === 'leave' ? `由【 ${item.coverName} 】代班` : `幫【 ${item.leaveName} 】代班`;
                     
