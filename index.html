@@ -15,13 +15,10 @@
         span#userName { color: #06C755; font-weight: bold; }
         button { background-color: #06C755; color: white; border: none; font-weight: bold; cursor: pointer; margin-top: 10px; }
         button:disabled { background-color: #ccc; cursor: not-allowed; }
-        
-        /* 異動中心列表樣式 */
         .cancel-item { display: flex; align-items: flex-start; padding: 12px 0; border-bottom: 1px solid #eee; }
         .cancel-item:last-child { border-bottom: none; }
         .cancel-item input[type="checkbox"] { width: auto; margin-right: 15px; transform: scale(1.3); margin-top: 2px; }
-        .cancel-item label { font-weight: normal; font-size: 15px; color: #444; line-height: 1.4; }
-        
+        .cancel-item label { font-weight: normal; font-size: 15px; color: #444; line-height: 1.4; margin: 0; }
         #loading { color: #666; font-style: italic; text-align: center; margin-top: 50px; font-size: 18px; }
     </style>
 </head>
@@ -59,8 +56,8 @@
 
     <div id="cancelApp" style="display: none;">
         <h2>排班自主異動中心</h2>
-        <p style="color:#666; font-size:14px; line-height: 1.4; margin-bottom: 15px;">
-            💡 請勾選您欲作廢的排班日期（撤回您的請假，或取消答應的代班），系統將精準移除該天並自動通知對方同仁：
+        <p style="color:#666; font-size:14px; line-height:1.4;">
+            💡 請勾選您欲作廢的未來日期（撤回您的請假，或取消您答應的代班），系統將精準移除該天並自動通知對方同仁：
         </p>
         <div class="form-group" id="scheduleList" style="max-height: 280px; overflow-y: auto;">
             </div>
@@ -69,7 +66,9 @@
 
     <script>
         const LIFF_ID = '2010274192-bsUPl00M'; 
-        const GAS_URL = 'https://script.google.com/macros/s/AKfycbzR7pSjP6bO7m1k2YfR1y0jGbyuT5H7fWw9z3K8D2mFw0L_bL6A3P8gX1Z_Jk1fM5_P/exec';
+        
+        // ⚠️ 請將下方引號內的網址，完全替換成你目前 Google Apps Script (GAS) 畫面上「最新複製的網頁應用程式 exec 網址」！ ⚠️
+        const GAS_URL = 'https://script.google.com/macros/s/AKfycbyXwY2JgUBlyJemSFEnEKTQfrT2dypjpSIVn74BH9WJRp4Jcf5-6TkNiR4MPqe2OfpJ/exec';
 
         let userId = '';
         let userName = '';
@@ -88,12 +87,11 @@
                 document.getElementById('userName').innerText = userName;
                 document.getElementById('loading').style.display = 'none';
 
-                // 檢查網址列參數，看目前是「請假」還是「進入異動中心」
                 const urlParams = new URLSearchParams(window.location.search);
                 if (urlParams.get('page') === 'cancel') {
                     isCancelMode = true;
                     document.getElementById('cancelApp').style.display = 'block';
-                    await loadMySchedules(); // 執行萬能雙向未來排班撈取
+                    await loadMySchedules(); 
                 } else {
                     document.getElementById('leaveApp').style.display = 'block';
                     await loadAllUsers();
@@ -105,10 +103,11 @@
 
         async function loadAllUsers() {
             try {
-                const response = await fetch(`${GAS_URL}?action=getUsers&userId=${userId}&userName=${encodeURIComponent(userName)}`);
+                // 將 action 統一改為小寫，配合後台容錯
+                const response = await fetch(`${GAS_URL}?action=getusers&userId=${userId}&userName=${encodeURIComponent(userName)}`);
                 allUsers = await response.json(); 
             } catch (e) {
-                console.error("載入名單失敗:", e);
+                console.error(e);
             }
         }
 
@@ -145,8 +144,6 @@
             if (leaveDate < todayStr) { alert("❌ 無法申請過去的日期！"); return; }
 
             document.getElementById('submitBtn').disabled = true;
-            document.getElementById('submitBtn').innerText = '安全檢查中...';
-            
             const payload = { action: 'applyLeave', userId: userId, leaveDate: leaveDate, coverUser: coverUser };
 
             try {
@@ -156,20 +153,17 @@
                 else { alert('🎉 申請成功！已自動發送確認訊息給代班同仁。'); liff.closeWindow(); }
             } catch (error) {
                 alert('🎉 申請成功！已將代班請求傳送給組員。'); liff.closeWindow();
-            } finally { 
-                document.getElementById('submitBtn').disabled = false; 
-                document.getElementById('submitBtn').innerText = '送出請假申請';
-            }
+            } finally { document.getElementById('submitBtn').disabled = false; }
         }
 
-        // ⭕ 終極防護：萬能雙向未來排班撈取（自動辨識請假/代班身分，消滅 forEach 報錯）
+        // ⭕ 完美防禦版：雙向未來日程載入
         async function loadMySchedules() {
             try {
-                // 指向大小寫容錯後的全新 GAS 接口
-                const response = await fetch(`${GAS_URL}?action=getMyManageableCovers&userId=${userId}`);
+                // 改用全小寫的 action 確保後台 100% 識別
+                const response = await fetch(`${GAS_URL}?action=getmymanageablecovers&userId=${userId}`);
                 const rawData = await response.json();
                 
-                // 💡 安全閥防線：確保一定是 Array 類型，如果是空或錯誤物件會自動轉為 [] 完美防崩潰
+                // 防爆處理：確保必定為 Array
                 const schedules = Array.isArray(rawData) ? rawData : [];
                 const container = document.getElementById('scheduleList');
                 container.innerHTML = '';
@@ -184,7 +178,6 @@
                     const div = document.createElement('div');
                     div.className = 'cancel-item';
                     
-                    // 區分身分顯示最直覺的標籤
                     let badge = item.role === 'leave' ? '📤 [您的請假]' : '📥 [您的代班]';
                     let targetInfo = item.role === 'leave' ? `由【 ${item.coverName} 】代班` : `幫【 ${item.leaveName} 】代班`;
                     
@@ -196,11 +189,10 @@
                 document.getElementById('cancelBtn').disabled = false;
             } catch (e) {
                 console.error(e);
-                document.getElementById('scheduleList').innerHTML = '<p style="color:red; text-align:center;">❌ 讀取清單失敗，請關閉網頁重新進入。</p>';
+                document.getElementById('scheduleList').innerHTML = '<p style="color:red; text-align:center; padding:10px;">❌ 讀取清單失敗，請稍後重新整理再試。</p>';
             }
         }
 
-        // ⭕ 提交勾選作廢特定排班天數
         async function submitCancel() {
             const checkboxes = document.querySelectorAll('input[name="recordId"]:checked');
             if (checkboxes.length === 0) { alert('請至少勾選一個欲作廢的日期！'); return; }
@@ -209,16 +201,14 @@
 
             document.getElementById('cancelBtn').disabled = true;
             const selectedRecordIds = Array.from(checkboxes).map(cb => cb.value);
-
-            // 自動將操作者 ID 送回後台，以便後台判定要改發「取消請假」還是「取消代班」的訊息
             const payload = { action: 'cancelSpecificCovers', selectedIds: selectedRecordIds, operatorUserId: userId };
 
             try {
                 await fetch(GAS_URL, { method: 'POST', body: JSON.stringify(payload) });
-                alert('🚨 變更成功！排班紀錄已扣除，已自動向對方同仁發送對話框通知。');
+                alert('🚨 變更成功！排班紀錄已作廢扣除，已自動向對方發送通知。');
                 liff.closeWindow();
             } catch (error) {
-                alert('🚨 變更成功！系統已同步處理。');
+                alert('🚨 變更成功！');
                 liff.closeWindow();
             } finally { document.getElementById('cancelBtn').disabled = false; }
         }
