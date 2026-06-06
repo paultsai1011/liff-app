@@ -3,13 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>排班自主異動與請假系統</title>
+    <title>排班請假代班系統</title>
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         :root {
             --primary-color: #007AFF;
-            --success-color: #34C759;
-            --danger-color: #FF3B30;
             --bg-color: #F2F2F7;
             --card-bg: #FFFFFF;
         }
@@ -38,39 +36,6 @@
             margin-top: 0;
             margin-bottom: 20px;
             font-size: 22px;
-        }
-
-        /* 分頁標籤 (Tab) 樣式 */
-        .tabs {
-            display: flex;
-            background: #E5E5EA;
-            padding: 2px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-        }
-        .tab-btn {
-            flex: 1;
-            background: transparent;
-            border: none;
-            padding: 10px;
-            font-size: 14px;
-            font-weight: bold;
-            color: #8E8E93;
-            cursor: pointer;
-            border-radius: 6px;
-            transition: all 0.2s;
-        }
-        .tab-btn.active {
-            background: #FFFFFF;
-            color: #000000;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-
-        .page {
-            display: none;
-        }
-        .page.active {
-            display: block;
         }
 
         .form-group {
@@ -104,45 +69,7 @@
             margin-top: 10px;
             transition: opacity 0.2s;
         }
-        button:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-        }
         .btn-primary { background-color: var(--primary-color); }
-        .btn-danger { background-color: var(--danger-color); }
-
-        /* 異動中心列表樣式 */
-        .schedule-list {
-            max-height: 300px;
-            overflow-y: auto;
-            border: 1px solid #E5E5EA;
-            border-radius: 8px;
-            padding: 10px;
-            background: #FAFAFC;
-            margin-bottom: 16px;
-        }
-        .cancel-item {
-            display: flex;
-            align-items: flex-start;
-            padding: 10px;
-            border-bottom: 1px solid #E5E5EA;
-        }
-        .cancel-item:last-child {
-            border-bottom: none;
-        }
-        .cancel-item input[type="checkbox"] {
-            margin-right: 12px;
-            margin-top: 4px;
-            transform: scale(1.2);
-        }
-        .cancel-item label {
-            font-weight: normal;
-            font-size: 14px;
-            line-height: 1.4;
-            color: #48484A;
-            margin: 0;
-            cursor: pointer;
-        }
 
         /* 讀取中遮罩 */
         #loadingOverlay {
@@ -179,47 +106,31 @@
     </div>
 
     <div class="container">
-        <div class="tabs">
-            <button class="tab-btn active" id="tabApply" onclick="switchPage('apply')">📝 請假申請</button>
-            <button class="tab-btn" id="tabCancel" onclick="switchPage('cancel')">🚨 異動中心</button>
+        <h2>填寫請假代班申請</h2>
+        
+        <div class="form-group">
+            <label for="leaveDate">📅 選擇您的請假日期：</label>
+            <input type="date" id="leaveDate">
         </div>
-
-        <div id="pageApply" class="page active">
-            <h2>填寫請假代班申請</h2>
-            <div class="form-group">
-                <label for="leaveDate">📅 選擇您的請假日期：</label>
-                <input type="date" id="leaveDate">
-            </div>
-            <div class="form-group">
-                <label for="coverUser">👤 選擇協助代班同仁：</label>
-                <select id="coverUser">
-                    <option value="">載入同仁清單中...</option>
-                </select>
-            </div>
-            <button class="btn-primary" id="applyBtn" onclick="submitApply()">送出代班請求</button>
+        
+        <div class="form-group">
+            <label for="coverUser">👤 選擇協助代班同仁：</label>
+            <select id="coverUser">
+                <option value="">載入同仁清單中...</option>
+            </select>
         </div>
-
-        <div id="pageCancel" class="page">
-            <h2>排班自主異動中心</h2>
-            <p style="font-size: 13px; color: #666; margin-bottom: 12px;">
-                💡 勾選您欲作廢的未來日期（不論是撤回請假、或是取消答應的代班），送出後系統會精準移除該筆記錄並自動通知對方。
-            </p>
-            <div class="schedule-list" id="scheduleList">
-                <p style="text-align:center; color:#8e8e93; padding:20px;">排班明細讀取中...</p>
-            </div>
-            <button class="btn-danger" id="cancelBtn" onclick="submitCancel()" disabled>確認撤銷/作廢選取日期</button>
-        </div>
+        
+        <button class="btn-primary" id="applyBtn" onclick="submitApply()">送出代班請求</button>
     </div>
 
     <script>
-        // ⚠️ 請務必確認此處的 GAS 網址與您最新部署的網址一致 ⚠️
+        // 確保此處 GAS 網址與您最新部署的一致
         const GAS_URL = "https://script.google.com/macros/s/AKfycbzR7pSjP6bO7m1k2YfR1y0jGbyuT5H7fWw9z3K8D2mFw0L_bL6A3P8gX1Z_Jk1fM5_P/exec"; 
         
         let userId = "";
-        let userName = "";
 
         window.onload = function() {
-            // 初始化 LIFF 
+            // 初始化 LIFF
             liff.init({ liffId: "2010274192-bsUPl00M" })
                 .then(() => {
                     if (!liff.isLoggedIn()) {
@@ -228,53 +139,15 @@
                         const context = liff.getContext();
                         userId = context ? context.userId : "";
                         
-                        // 檢查網址參數是否指定進入特定分頁
-                        const urlParams = new URLSearchParams(window.location.search);
-                        const pageParam = urlParams.get('page');
-                        
-                        // 載入核心數據
-                        initSystemData(pageParam);
+                        // 載入同仁清單
+                        loadUserDropdown();
                     }
                 })
                 .catch((err) => {
                     console.error("LIFF 初始化失敗:", err);
-                    showNotice("系統加載失敗，請確認於 LINE 內部開啟！");
+                    showNotice("系統加載失敗，請從 LINE 內部開啟！");
                 });
         };
-
-        // 初始化系統數據載入
-        async function initSystemData(defaultPage) {
-            try {
-                // 1. 載入註冊用戶清單（供請假選擇代班人）
-                await loadUserDropdown();
-                
-                // 2. 依照參數切換分頁
-                if (defaultPage === 'cancel') {
-                    switchPage('cancel');
-                } else {
-                    hideLoading();
-                }
-            } catch (err) {
-                console.error("初始化載入異常:", err);
-                hideLoading();
-            }
-        }
-
-        // 分頁切換控制邏輯
-        function switchPage(pageName) {
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-
-            if (pageName === 'apply') {
-                document.getElementById('tabApply').classList.add('active');
-                document.getElementById('pageApply').classList.add('active');
-            } else if (pageName === 'cancel') {
-                document.getElementById('tabCancel').classList.add('active');
-                document.getElementById('pageCancel').classList.add('active');
-                showLoading("正在搜尋您的未來排班...");
-                loadMySchedules();
-            }
-        }
 
         // 載入代班人下拉選單
         async function loadUserDropdown() {
@@ -284,11 +157,12 @@
                 const dropdown = document.getElementById('coverUser');
                 dropdown.innerHTML = '<option value="">-- 請選擇組員 --</option>';
                 
-                // 過濾掉自己，不讓自己選自己代班
+                // 過濾掉操作者自己
                 const otherUsers = users.filter(u => u.id !== userId);
                 
                 if(otherUsers.length === 0) {
                     dropdown.innerHTML = '<option value="">目前無其他已註冊的同仁</option>';
+                    hideLoading();
                     return;
                 }
 
@@ -298,53 +172,16 @@
                     opt.textContent = `${u.name} (Leader: ${u.leader})`;
                     dropdown.appendChild(opt);
                 });
+                
+                hideLoading();
             } catch (e) {
                 console.error("載入人員失敗:", e);
                 document.getElementById('coverUser').innerHTML = '<option value="">❌ 載入失敗，請重新整理</option>';
-            }
-        }
-
-        // ⭕ 終極防護：載入該用戶未來可取消/撤回的代班明細
-        async function loadMySchedules() {
-            try {
-                const response = await fetch(`${GAS_URL}?action=getMyManageableCovers&userId=${userId}`);
-                const rawData = await response.json();
-                
-                // 💡 安全閥防線：若後端未正確回傳 Array 格式，自動強制建立空陣列包裝，百分之百消滅 schedules.forEach is not a function！
-                const schedules = Array.isArray(rawData) ? rawData : [];
-                
-                const container = document.getElementById('scheduleList');
-                container.innerHTML = '';
-
-                if (schedules.length === 0) {
-                    container.innerHTML = '<p style="color:#34C759; text-align:center; padding: 20px; font-weight:bold;">🎉 您目前沒有任何可撤銷或需要履行的未來排班！</p>';
-                    document.getElementById('cancelBtn').disabled = true;
-                    hideLoading();
-                    return;
-                }
-
-                schedules.forEach(item => {
-                    const div = document.createElement('div');
-                    div.className = 'cancel-item';
-                    
-                    let badge = item.role === 'leave' ? '📤 [您的請假]' : '📥 [您的代班]';
-                    let targetInfo = item.role === 'leave' ? `由【 ${item.coverName} 】代班` : `幫【 ${item.leaveName} 】代班`;
-                    
-                    div.innerHTML = `<input type="checkbox" name="recordId" value="${item.recordId}" id="chk_${item.recordId}">
-                                     <label for="chk_${item.recordId}">📅 <b>${item.date}</b> - ${badge}<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${targetInfo} (狀態: ${item.status})</label>`;
-                    container.appendChild(div);
-                });
-                
-                document.getElementById('cancelBtn').disabled = false;
-            } catch (e) {
-                console.error("載入排班明細出錯:", e);
-                document.getElementById('scheduleList').innerHTML = '<p style="color:red; text-align:center; padding: 10px;">❌ 讀取資料失敗，請重新整理網頁再試。</p>';
-            } finally {
                 hideLoading();
             }
         }
 
-        // 動作一：送出請假代班申請
+        // 送出請假代班申請
         async function submitApply() {
             const leaveDate = document.getElementById('leaveDate').value;
             const coverUser = document.getElementById('coverUser').value;
@@ -370,7 +207,7 @@
                 const result = await response.json();
                 
                 if (result.status === 'success') {
-                    alert("✨ 申請成功！已推播 Flex 邀請卡片給代班同仁審核中。");
+                    alert("✨ 申請成功！已推播 Flex 邀請卡片給代班同仁審核。");
                     liff.closeWindow();
                 } else {
                     alert("⚠️ 申請失敗：\n" + result.message);
@@ -378,59 +215,18 @@
             } catch (err) {
                 console.error(err);
                 alert("網路通訊異常，請稍後再試！");
-            } finally {
+            } finaly {
                 hideLoading();
             }
         }
 
-        // 動作二：送出勾選撤銷
-        async function submitCancel() {
-            const checkboxes = document.querySelectorAll('input[name="recordId"]:checked');
-            if (checkboxes.length === 0) { alert("請至少勾選一個欲撤銷的日期！"); return; }
-
-            const selectedIds = Array.from(checkboxes).map(cb => cb.value);
-            
-            if (!confirm(`您確定要將這 ${selectedIds.length} 筆排班行程作廢移除嗎？\n(移除後系統將自動發送警報給關聯同仁)`)) {
-                return;
-            }
-
-            showLoading("正在執行變更撤銷...");
-
-            try {
-                const response = await fetch(GAS_URL, {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        action: 'cancelSpecificCovers',
-                        selectedIds: selectedIds,
-                        operatorUserId: userId
-                    })
-                });
-                const result = await response.json();
-                
-                if (result.status === 'success') {
-                    alert("🚨 作廢成功！相關排班已被移除，連動通知也已成功派發。");
-                    liff.closeWindow();
-                } else {
-                    alert("撤銷失敗：" + result.message);
-                }
-            } catch (err) {
-                console.error(err);
-                alert("提交撤銷請求失敗，請稍後重試！");
-            } finally {
-                hideLoading();
-            }
-        }
-
-        // 工具：顯示遮罩
         function showLoading(text) {
             document.getElementById('loadingText').textContent = text;
             document.getElementById('loadingOverlay').style.display = 'flex';
         }
-        // 工具：關閉遮罩
         function hideLoading() {
             document.getElementById('loadingOverlay').style.display = 'none';
         }
-        // 工具：靜態文字通知
         function showNotice(text) {
             document.getElementById('loadingText').innerHTML = `<b>${text}</b>`;
             document.getElementById('loadingOverlay').querySelector('.spinner').style.display = 'none';
