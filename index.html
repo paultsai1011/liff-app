@@ -65,13 +65,26 @@
     <div id="adminApp" style="display: none;">
         <h2>📊 團隊排班管理後台</h2>
         
+        <div class="form-group" style="border: 2px dashed #007AFF; background-color: #f0f7ff;">
+            <label style="color:#007AFF; font-size:16px;">✏️ 組織 Leader 名稱異動專區</label>
+            <p style="color:#666; font-size:13px; margin: 0 0 10px 0;">適用於：主管換人、大搬風，可將該主管底下的組員「一鍵整批打包」轉移。</p>
+            
+            <label for="adminRenameOldLeader" style="font-size:14px; font-weight:normal;">1. 請選擇欲變更的【舊 Leader】：</label>
+            <select id="adminRenameOldLeader"><option value="">-- 請選擇舊 Leader --</option></select>
+            
+            <label for="adminRenameNewName" style="font-size:14px; font-weight:normal; margin-top:8px;">2. 請輸入【全新 Leader 姓名】：</label>
+            <input type="text" id="adminRenameNewName" placeholder="請輸入新姓名 (例如: 謝孟勳)">
+            
+            <button onclick="submitLeaderRename()" style="background-color: #007AFF; margin-top:12px;">執行一鍵全組更名轉移</button>
+        </div>
+
         <div class="chart-box">
             <label style="text-align: center; display: block; margin-bottom: 10px;">🏆 團隊整體績效 (By Leader 加總)</label>
             <canvas id="teamLeaderChart" style="width:100%; height:220px;"></canvas>
         </div>
 
         <div class="form-group">
-            <label for="adminFilterLeader">請選擇要檢視與管理的 Leader 組別：</label>
+            <label for="adminFilterLeader">請選擇要檢視與管理的 Leader 組別成員：</label>
             <select id="adminFilterLeader" onchange="onAdminLeaderChange()">
                 <option value="">-- 請選擇 Leader --</option>
             </select>
@@ -104,7 +117,6 @@
                 userId = profile.userId;
                 document.getElementById('loading').style.display = 'none';
 
-                // 開放全域拉取
                 allUsers = await fetch(`${GAS_URL}?action=getusers`).then(r => r.json());
                 allLeaders = await fetch(`${GAS_URL}?action=getleaders`).then(r => r.json());
 
@@ -112,7 +124,6 @@
                 if (urlParams.get('page') === 'admin') {
                     document.getElementById('adminApp').style.display = 'block';
                     initAdminLeaderSelect();
-                    // 異步拉取圖表大數據
                     chartRawData = await fetch(`${GAS_URL}?action=getchartdata`).then(r => r.json());
                     buildTeamLeaderChart();
                 } else if (urlParams.get('page') === 'cancel') {
@@ -208,15 +219,45 @@
         }
 
         // ==========================================
-        // 圖表管理、連動與預約新邏輯
+        // 後台控制與更名核心函數
         // ==========================================
         function initAdminLeaderSelect() {
             const select = document.getElementById('adminFilterLeader');
             select.innerHTML = '<option value="">-- 請選擇 Leader --</option>';
-            allLeaders.forEach(l => { select.innerHTML += `<option value="${l}">${l}</option>`; });
+            
+            const renameSelect = document.getElementById('adminRenameOldLeader');
+            renameSelect.innerHTML = '<option value="">-- 請選擇舊 Leader --</option>';
+
+            allLeaders.forEach(l => { 
+                select.innerHTML += `<option value="${l}">${l}</option>`; 
+                renameSelect.innerHTML += `<option value="${l}">${l}</option>`; 
+            });
         }
 
-        // 建立大團隊 By Leader 的長條統計圖
+        // 執行一鍵全組主管更名
+        async function submitLeaderRename() {
+            const oldLeader = document.getElementById('adminRenameOldLeader').value;
+            const newLeaderName = document.getElementById('adminRenameNewName').value.trim();
+
+            if(!oldLeader) return alert('請選擇要更名的舊主管！');
+            if(!newLeaderName) return alert('請輸入全新主管的姓名！');
+
+            if(!confirm(`⚠️ 確定要將【${oldLeader}】正式改名為【${newLeaderName}】嗎？\n這將會一次性把所有綁定在【${oldLeader}】底下的員工與資料庫設定全部整批修改！`)) return;
+
+            try {
+                const res = await fetch(GAS_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'renameleader', oldLeader: oldLeader, newLeader: newLeaderName })
+                }).then(r => r.json());
+
+                alert(res.message || "更新完畢！");
+                location.reload();
+            } catch (e) {
+                alert("更名動作已送出，請重新整理網頁檢視最新試算表狀態。");
+                location.reload();
+            }
+        }
+
         function buildTeamLeaderChart() {
             if(!chartRawData) return;
             const ctx = document.getElementById('teamLeaderChart').getContext('2d');
@@ -243,13 +284,11 @@
             });
         }
 
-        // 當管理頁面的主管切換時同時渲染圖表與名單
         function onAdminLeaderChange() {
             renderAdminMembers();
             buildMemberChart();
         }
 
-        // 建立特定主管底下成員負載分析圖
         function buildMemberChart() {
             const selectedLeader = document.getElementById('adminFilterLeader').value;
             const box = document.getElementById('memberChartBox');
@@ -281,7 +320,7 @@
                         { label: '個人代班', data: coverData, backgroundColor: '#4BC0C0' }
                     ]
                 },
-                options: { indexAxis: 'y', responsive: true, scales: { x: { beginAtZero: true } } } // 橫向橫條圖方便閱讀姓名
+                options: { indexAxis: 'y', responsive: true, scales: { x: { beginAtZero: true } } }
             });
         }
 
@@ -294,7 +333,7 @@
             }
             const members = allUsers.filter(u => u.leader === selectedLeader);
             if (members.length === 0) {
-                container.innerHTML = `<p style="color: #666; text-align: center; padding: 20px;">💡 目前【${selectedLeader}】組內沒有註冊成員。</p>`; return;
+                container.innerHTML = `<p style="color: #666; text-align: center; padding: 20px;">💡 目前【${selectedLeader}】組內沒有註冊成員。</p>'; return;
             }
             members.forEach(u => {
                 container.innerHTML += `
