@@ -6,31 +6,49 @@
     <title>排班管理系統</title>
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; padding: 20px; background-color: #f5f5f5; }
-        .form-group { background: white; padding: 15px; margin-bottom: 10px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-        select, button { width: 100%; padding: 12px; margin-top: 5px; border-radius: 6px; border: 1px solid #ddd; }
-        button { background-color: #06C755; color: white; font-weight: bold; cursor: pointer; }
-        .card { border: 1px solid #ddd; padding: 10px; margin-bottom: 10px; background: white; border-radius: 5px; }
+        body { font-family: Arial, sans-serif; padding: 20px; box-sizing: border-box; background-color: #f5f5f5; }
+        h2 { color: #333; text-align: center; }
+        .form-group { margin-bottom: 15px; background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        label { display: block; margin-bottom: 8px; font-weight: bold; color: #555; }
+        input, select, button { width: 100%; padding: 12px; font-size: 16px; margin-top: 5px; box-sizing: border-box; border: 1px solid #ddd; border-radius: 6px; }
+        button { background-color: #06C755; color: white; border: none; font-weight: bold; cursor: pointer; margin-top: 10px; }
+        .card { border: 1px solid #ddd; padding: 15px; margin-bottom: 10px; background: white; border-radius: 8px; }
+        .cancel-item { display: flex; align-items: flex-start; padding: 12px 0; border-bottom: 1px solid #eee; }
+        #loading { color: #666; text-align: center; margin-top: 50px; }
     </style>
 </head>
 <body>
 
-    <div id="loading">讀取中...</div>
+    <div id="loading">LINE 安全登入中...</div>
 
     <div id="leaveApp" style="display: none;">
         <h2>排班請假申請</h2>
         <div class="form-group">
-            <label>同仁：<span id="userName"></span></label>
+            <label>請假同仁：<span id="userName" style="color: #06C755;">載入中...</span></label>
         </div>
         <div class="form-group">
-            <label>選擇 Leader：</label>
-            <select id="leaderSelect" onchange="filterUsersByLeader()"><option>載入中...</option></select>
+            <label for="leaveDate">選擇請假日期：</label>
+            <input type="date" id="leaveDate" required>
         </div>
         <div class="form-group">
-            <label>代班同仁：</label>
-            <select id="coverUser" disabled><option>-- 請先選 Leader --</option></select>
+            <label for="leaderSelect">第一步：選擇 Leader：</label>
+            <select id="leaderSelect" onchange="filterUsersByLeader()">
+                <option value="">-- 載入中... --</option>
+            </select>
         </div>
-        <button onclick="submitForm()">送出申請</button>
+        <div class="form-group">
+            <label for="coverUser">第二步：選擇代班同仁：</label>
+            <select id="coverUser" disabled>
+                <option value="">-- 請先選擇上方 Leader --</option>
+            </select>
+        </div>
+        <button id="submitBtn" onclick="submitForm()">送出請假申請</button>
+    </div>
+
+    <div id="cancelApp" style="display: none;">
+        <h2>排班自主異動中心</h2>
+        <div class="form-group" id="scheduleList"></div>
+        <button id="cancelBtn" style="background-color: #FF3B30;" onclick="submitCancel()">確認撤銷/作廢</button>
     </div>
 
     <div id="adminApp" style="display: none;">
@@ -46,61 +64,72 @@
 
         async function initLIFF() {
             await liff.init({ liffId: LIFF_ID });
+            if (!liff.isLoggedIn()) { liff.login(); return; }
+            
             const profile = await liff.getProfile();
             userId = profile.userId;
             
-            // 載入共用資料
+            // 載入資料
             allUsers = await fetch(`${GAS_URL}?action=getusers`).then(r => r.json());
             allLeaders = await fetch(`${GAS_URL}?action=getleaders`).then(r => r.json());
 
             const urlParams = new URLSearchParams(window.location.search);
+            document.getElementById('loading').style.display = 'none';
+
             if (urlParams.get('page') === 'admin') {
                 document.getElementById('adminApp').style.display = 'block';
                 renderAdmin();
+            } else if (urlParams.get('page') === 'cancel') {
+                document.getElementById('cancelApp').style.display = 'block';
+                await loadMySchedules();
             } else {
                 document.getElementById('leaveApp').style.display = 'block';
                 document.getElementById('userName').innerText = allUsers.find(u => u.id === userId)?.name || "訪客";
                 renderLeaders();
             }
-            document.getElementById('loading').style.display = 'none';
         }
 
+        // 動態載入 Leader 選單
         function renderLeaders() {
             const sel = document.getElementById('leaderSelect');
-            sel.innerHTML = '<option value="">-- 選擇 Leader --</option>';
+            sel.innerHTML = '<option value="">-- 請選擇 Leader --</option>';
             allLeaders.forEach(l => sel.innerHTML += `<option value="${l}">${l}</option>`);
         }
 
+        // 篩選組員
         function filterUsersByLeader() {
             const val = document.getElementById('leaderSelect').value;
             const sel = document.getElementById('coverUser');
-            sel.innerHTML = '<option value="">-- 選擇同仁 --</option>';
+            sel.innerHTML = '<option value="">-- 請選擇代班同仁 --</option>';
             allUsers.filter(u => u.leader === val && u.id !== userId).forEach(u => sel.innerHTML += `<option value="${u.id}">${u.name}</option>`);
             sel.disabled = false;
         }
 
+        // 管理員介面渲染
         function renderAdmin() {
             const container = document.getElementById('adminContainer');
             allUsers.forEach(u => {
                 container.innerHTML += `
                     <div class="card">
-                        ${u.name} <br>
+                        <b>${u.name}</b><br>
                         <select id="sel_${u.id}">
                             ${allLeaders.map(l => `<option value="${l}" ${u.leader===l?'selected':''}>${l}</option>`).join('')}
                         </select>
-                        <button onclick="updateLeader('${u.id}')">變更</button>
+                        <button onclick="updateLeader('${u.id}')">更新 Leader</button>
                     </div>
                 `;
             });
         }
 
+        // 更新組織架構
         async function updateLeader(uId) {
             const newLeader = document.getElementById('sel_'+uId).value;
             await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'updateUserLeader', userId: uId, newLeader: newLeader })});
-            alert("更新成功");
+            alert("更新成功！");
             location.reload();
         }
 
+        // 其他功能 (submitForm, loadMySchedules, submitCancel 等請保留您原本的邏輯)
         window.onload = initLIFF;
     </script>
 </body>
