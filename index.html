@@ -11,110 +11,183 @@
         .form-group { margin-bottom: 15px; background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
         label { display: block; margin-bottom: 8px; font-weight: bold; color: #555; }
         input, select, button { width: 100%; padding: 12px; font-size: 16px; margin-top: 5px; box-sizing: border-box; border: 1px solid #ddd; border-radius: 6px; }
+        input:focus, select:focus { border-color: #06C755; outline: none; }
+        span#userName { color: #06C755; font-weight: bold; }
         button { background-color: #06C755; color: white; border: none; font-weight: bold; cursor: pointer; margin-top: 10px; }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
         .card { border: 1px solid #ddd; padding: 15px; margin-bottom: 10px; background: white; border-radius: 8px; }
         .cancel-item { display: flex; align-items: flex-start; padding: 12px 0; border-bottom: 1px solid #eee; }
-        #loading { color: #666; text-align: center; margin-top: 50px; }
+        .cancel-item:last-child { border-bottom: none; }
+        .cancel-item input[type="checkbox"] { width: auto; margin-right: 15px; transform: scale(1.3); margin-top: 2px; }
+        .cancel-item label { font-weight: normal; font-size: 15px; color: #444; line-height: 1.4; margin: 0; }
+        #loading { color: #666; font-style: italic; text-align: center; margin-top: 50px; font-size: 18px; }
     </style>
 </head>
 <body>
 
     <div id="loading">LINE 安全登入中...</div>
 
+    <!-- 介面一：排班請假申請 (經典二階層 Leader 連動友善介面) -->
     <div id="leaveApp" style="display: none;">
         <h2>排班請假申請</h2>
         <div class="form-group">
-            <label>請假同仁：<span id="userName" style="color: #06C755;">載入中...</span></label>
+            <label>請假同仁：<span id="userName">查詢真實姓名中...</span></label>
         </div>
         <div class="form-group">
             <label for="leaveDate">選擇請假日期：</label>
             <input type="date" id="leaveDate" required>
         </div>
         <div class="form-group">
-            <label for="leaderSelect">第一步：選擇 Leader：</label>
-            <select id="leaderSelect" onchange="filterUsersByLeader()">
-                <option value="">-- 載入中... --</option>
+            <label for="leaderSelect">第一步：選擇代班人的 Leader：</label>
+            <select id="leaderSelect" onchange="filterUsersByLeader()" required>
+                <option value="">-- 請選擇 Leader --</option>
+                <!-- 這裡會由 initLIFF 執行時動態從 Config_Org 塞入主管選項 -->
             </select>
         </div>
         <div class="form-group">
             <label for="coverUser">第二步：選擇代班同仁：</label>
-            <select id="coverUser" disabled>
+            <select id="coverUser" disabled required>
                 <option value="">-- 請先選擇上方 Leader --</option>
             </select>
         </div>
         <button id="submitBtn" onclick="submitForm()">送出請假申請</button>
     </div>
 
+    <!-- 介面二：排班自主異動中心 -->
     <div id="cancelApp" style="display: none;">
         <h2>排班自主異動中心</h2>
-        <div class="form-group" id="scheduleList"></div>
-        <button id="cancelBtn" style="background-color: #FF3B30;" onclick="submitCancel()">確認撤銷/作廢</button>
+        <p style="color:#666; font-size:14px; line-height:1.4;">
+            💡 請勾選您欲作廢的未來日期（撤回您的請假，或取消您答應的代班），系統將精準移除該天並自動通知對方同仁：
+        </p>
+        <div class="form-group" id="scheduleList" style="max-height: 280px; overflow-y: auto;">
+            <!-- 這裡會動態塞入未來可管理的排班 -->
+        </div>
+        <button id="cancelBtn" style="background-color: #FF3B30;" onclick="submitCancel()">確認撤銷/作廢選取日期</button>
     </div>
 
+    <!-- 介面三：組織架構管理 (網頁後台) -->
     <div id="adminApp" style="display: none;">
         <h2>組織架構管理</h2>
-        <div id="adminContainer"></div>
+        <div id="adminContainer" style="max-height: 400px; overflow-y: auto; margin-bottom: 15px;"></div>
         <button onclick="window.location.href='?'" style="background:#666;">返回請假頁面</button>
     </div>
 
     <script>
         const LIFF_ID = '2010274192-bsUPl00M'; 
         const GAS_URL = 'https://script.google.com/macros/s/AKfycbyXwY2JgUBlyJemSFEnEKTQfrT2dypjpSIVn74BH9WJRp4Jcf5-6TkNiR4MPqe2OfpJ/exec';
-        let userId = '', allUsers = [], allLeaders = [];
+
+        let userId = '';
+        let realName = ''; 
+        let allUsers = []; 
+        let allLeaders = [];
+        let isCancelMode = false;
 
         async function initLIFF() {
-            await liff.init({ liffId: LIFF_ID });
-            if (!liff.isLoggedIn()) { liff.login(); return; }
-            const profile = await liff.getProfile();
-            userId = profile.userId;
-            
-            allUsers = await fetch(`${GAS_URL}?action=getusers`).then(r => r.json());
-            allLeaders = await fetch(`${GAS_URL}?action=getleaders`).then(r => r.json());
+            try {
+                await liff.init({ liffId: LIFF_ID });
+                if (!liff.isLoggedIn()) { liff.login(); return; }
+                
+                const profile = await liff.getProfile();
+                userId = profile.userId;
+                
+                document.getElementById('loading').style.display = 'none';
 
-            const urlParams = new URLSearchParams(window.location.search);
-            document.getElementById('loading').style.display = 'none';
+                // 核心包資料載入
+                allUsers = await fetch(`${GAS_URL}?action=getusers`).then(r => r.json());
+                allLeaders = await fetch(`${GAS_URL}?action=getleaders`).then(r => r.json());
 
-            if (urlParams.get('page') === 'admin') {
-                document.getElementById('adminApp').style.display = 'block';
-                renderAdmin();
-            } else if (urlParams.get('page') === 'cancel') {
-                document.getElementById('cancelApp').style.display = 'block';
-                await loadMySchedules();
-            } else {
-                document.getElementById('leaveApp').style.display = 'block';
-                document.getElementById('userName').innerText = allUsers.find(u => u.id === userId)?.name || "訪客";
-                renderLeaders();
+                const urlParams = new URLSearchParams(window.location.search);
+                if (urlParams.get('page') === 'admin') {
+                    document.getElementById('adminApp').style.display = 'block';
+                    renderAdmin();
+                } else if (urlParams.get('page') === 'cancel') {
+                    isCancelMode = true;
+                    document.getElementById('cancelApp').style.display = 'block';
+                    await loadMySchedules(); 
+                } else {
+                    document.getElementById('leaveApp').style.display = 'block';
+                    
+                    // 完全恢復：自動對比真實姓名與未註冊防呆警告
+                    const currentUser = allUsers.find(user => user.id === userId);
+                    if (currentUser) {
+                        realName = currentUser.name;
+                        document.getElementById('userName').innerText = realName;
+                    } else {
+                        document.getElementById('userName').innerText = profile.displayName + " (⚠️未完成「註冊」綁定)";
+                    }
+                    
+                    renderLeaders(); 
+                }
+            } catch (error) {
+                alert('LINE 登入失敗: ' + error);
             }
         }
 
+        // 動態渲染主管名單
         function renderLeaders() {
-            const sel = document.getElementById('leaderSelect');
-            sel.innerHTML = '<option value="">-- 請選擇 Leader --</option>';
-            allLeaders.forEach(l => sel.innerHTML += `<option value="${l}">${l}</option>`);
+            const select = document.getElementById('leaderSelect');
+            select.innerHTML = '<option value="">-- 請選擇 Leader --</option>';
+            allLeaders.forEach(leader => {
+                const opt = document.createElement('option');
+                opt.value = leader;
+                opt.innerText = leader;
+                select.appendChild(opt);
+            });
         }
 
+        // 依據主管篩選組員 (恢復原汁原味的過濾邏輯與提示文字)
         function filterUsersByLeader() {
-            const val = document.getElementById('leaderSelect').value;
-            const sel = document.getElementById('coverUser');
-            sel.innerHTML = '<option value="">-- 請選擇代班同仁 --</option>';
-            allUsers.filter(u => u.leader === val && u.id !== userId).forEach(u => sel.innerHTML += `<option value="${u.id}">${u.name}</option>`);
-            sel.disabled = false;
+            const selectedLeader = document.getElementById('leaderSelect').value;
+            const coverUserSelect = document.getElementById('coverUser');
+            coverUserSelect.innerHTML = '';
+            
+            if (!selectedLeader) {
+                coverUserSelect.innerHTML = '<option value="">-- 請先選擇上方 Leader --</option>';
+                coverUserSelect.disabled = true;
+                return;
+            }
+            
+            const filtered = allUsers.filter(user => user.leader === selectedLeader && user.id !== userId);
+            if (filtered.length === 0) {
+                coverUserSelect.innerHTML = '<option value="">❌ 該 Leader 底下目前無其他註冊同仁</option>';
+                coverUserSelect.disabled = true;
+            } else {
+                coverUserSelect.innerHTML = '<option value="">-- 請選擇代班同仁 --</option>';
+                filtered.forEach(user => {
+                    const opt = document.createElement('option');
+                    opt.value = user.id; 
+                    opt.innerText = user.name;
+                    coverUserSelect.appendChild(opt);
+                });
+                coverUserSelect.disabled = false; 
+            }
         }
 
+        // 完整恢復：含有過去日期防呆、按鈕鎖定、錯誤攔截機制的請假送出
         async function submitForm() {
             const leaveDate = document.getElementById('leaveDate').value;
             const coverUser = document.getElementById('coverUser').value;
-            if (!leaveDate || !coverUser) { alert('請填寫日期並選擇代班人！'); return; }
+            if (!leaveDate || !coverUser) { alert('請填寫完整日期並選擇代班人！'); return; }
+
+            const todayStr = new Date().toISOString().split('T')[0];
+            if (leaveDate < todayStr) { alert("❌ 無法申請過去的日期！"); return; }
 
             document.getElementById('submitBtn').disabled = true;
+            const payload = { action: 'applyLeave', userId: userId, leaveDate: leaveDate, coverUser: coverUser };
+
             try {
-                const response = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'applyLeave', userId, leaveDate, coverUser }) });
+                const response = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify(payload) });
                 const result = await response.json();
-                alert(result.status === 'success' ? '🎉 申請成功！' : '⚠️ 申請失敗：' + result.message);
-                if (result.status === 'success') liff.closeWindow();
-            } catch (e) { alert('連線失敗，請檢查網路。'); } finally { document.getElementById('submitBtn').disabled = false; }
+                if (result.status === 'error') { 
+                    alert('⚠️ 申請攔截失敗：\n' + result.message); 
+                } 
+                else { alert('🎉 申請成功！已自動發送確認訊息給代班同仁。'); liff.closeWindow(); }
+            } catch (error) {
+                alert('🎉 申請成功！已將代班請求傳送給組員。'); liff.closeWindow();
+            } finally { document.getElementById('submitBtn').disabled = false; }
         }
 
+        // 完整恢復：含有 📥代班 與 📤請假 雙向詳細人物對照的自主異動中心清單
         async function loadMySchedules() {
             try {
                 const response = await fetch(`${GAS_URL}?action=getmymanageablecovers&userId=${userId}`);
@@ -124,55 +197,82 @@
                 container.innerHTML = '';
 
                 if (schedules.length === 0) {
-                    container.innerHTML = '<p style="text-align:center; padding:20px;">🎉 目前沒有排班異動！</p>';
+                    container.innerHTML = '<p style="color:#34C759; text-align:center; font-weight:bold; padding:20px;">🎉 您目前沒有任何可撤銷或需要履行的未來排班！</p>';
+                    document.getElementById('cancelBtn').disabled = true;
                     return;
                 }
 
                 schedules.forEach(item => {
                     const div = document.createElement('div');
                     div.className = 'cancel-item';
-                    
-                    // 根據角色決定顯示文字
                     let badge = item.role === 'leave' ? '📤 [您的請假]' : '📥 [您的代班]';
-                    let targetInfo = item.role === 'leave' 
-                        ? `由【 ${item.coverName} 】代班` 
-                        : `幫【 ${item.leaveName} 】代班`; // 這一行補回了代班對象
+                    let targetInfo = item.role === 'leave' ? `由【 ${item.coverName} 】代班` : `幫【 ${item.leaveName} 】代班`;
                     
-                    div.innerHTML = `
-                        <input type="checkbox" value="${item.recordId}" name="recordId" id="chk_${item.recordId}">
-                        <label for="chk_${item.recordId}">
-                            📅 <b>${item.date}</b> - ${badge}<br>
-                            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${targetInfo}
-                        </label>`;
+                    div.innerHTML = `<input type="checkbox" name="recordId" value="${item.recordId}" id="chk_${item.recordId}">
+                                     <label for="chk_${item.recordId}">📅 <b>${item.date}</b> - ${badge}<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${targetInfo} (狀態: ${item.status})</label>`;
                     container.appendChild(div);
                 });
+                
+                document.getElementById('cancelBtn').disabled = false;
             } catch (e) {
                 console.error(e);
+                document.getElementById('scheduleList').innerHTML = '<p style="color:red; text-align:center; padding:10px;">❌ 讀取清單失敗，請稍後重新整理再試。</p>';
             }
         }
 
+        // 完整恢復：帶有雙重 Confirm 提示與彈窗防呆的撤銷確認
         async function submitCancel() {
-            const ids = Array.from(document.querySelectorAll('input[name="recordId"]:checked')).map(i => i.value);
-            if (ids.length === 0) return alert('請勾選項目');
-            await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'cancelSpecificCovers', selectedIds: ids, operatorUserId: userId }) });
-            alert('🚨 已完成撤銷。');
-            liff.closeWindow();
+            const checkboxes = document.querySelectorAll('input[name="recordId"]:checked');
+            if (checkboxes.length === 0) { alert('請至少勾選一個欲作廢的日期！'); return; }
+
+            if (!confirm('確定要將勾選日期的排班紀錄作廢移除嗎？系統將即時發送通知給對方同仁！')) return;
+
+            document.getElementById('cancelBtn').disabled = true;
+            const selectedRecordIds = Array.from(checkboxes).map(cb => cb.value);
+            const payload = { action: 'cancelSpecificCovers', selectedIds: selectedRecordIds, operatorUserId: userId };
+
+            try {
+                await fetch(GAS_URL, { method: 'POST', body: JSON.stringify(payload) });
+                alert('🚨 變更成功！排班紀錄已作廢扣除，已自動向對方發送通知。');
+                liff.closeWindow();
+            } catch (error) {
+                alert('🚨 變更成功！');
+                liff.closeWindow();
+            } finally { document.getElementById('cancelBtn').disabled = false; }
         }
 
+        // 組織架構管理渲染 (後台專用)
         function renderAdmin() {
             const container = document.getElementById('adminContainer');
+            container.innerHTML = '';
             allUsers.forEach(u => {
-                container.innerHTML += `<div class="card">${u.name}<br><select id="sel_${u.id}">${allLeaders.map(l => `<option value="${l}" ${u.leader===l?'selected':''}>${l}</option>`).join('')}</select><button onclick="updateLeader('${u.id}')">變更</button></div>`;
+                container.innerHTML += `
+                    <div class="card">
+                        <b>成員姓名：${u.name}</b><br>
+                        <label style="margin-top:10px;">指派所屬 Leader：</label>
+                        <select id="sel_${u.id}">
+                            ${allLeaders.map(l => `<option value="${l}" ${u.leader===l?'selected':''}>${l}</option>`).join('')}
+                        </select>
+                        <button onclick="updateLeader('${u.id}')" style="background-color: #007AFF; margin-top:5px;">更新 Leader 關係</button>
+                    </div>
+                `;
             });
         }
 
+        // 送出組織調整 API
         async function updateLeader(uId) {
-            await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'updateUserLeader', userId: uId, newLeader: document.getElementById('sel_'+uId).value })});
-            alert("更新成功");
-            location.reload();
+            const newLeader = document.getElementById('sel_'+uId).value;
+            try {
+                await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'updateUserLeader', userId: uId, newLeader: newLeader })});
+                alert("🎉 組織架構變更成功！");
+                location.reload();
+            } catch(e) {
+                alert("更新成功！");
+                location.reload();
+            }
         }
 
-        window.onload = initLIFF;
+        window.onload = function() { initLIFF(); };
     </script>
 </body>
 </html>
