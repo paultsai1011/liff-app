@@ -116,12 +116,39 @@
         }
 
         async function loadMySchedules() {
-            const res = await fetch(`${GAS_URL}?action=getmymanageablecovers&userId=${userId}`);
-            const data = await res.json();
-            const list = document.getElementById('scheduleList');
-            data.forEach(item => {
-                list.innerHTML += `<div class="cancel-item"><input type="checkbox" value="${item.recordId}" name="recordId"> <label>${item.date} - ${item.role=='leave'?'📤 請假':'📥 代班'}</label></div>`;
-            });
+            try {
+                const response = await fetch(`${GAS_URL}?action=getmymanageablecovers&userId=${userId}`);
+                const rawData = await response.json();
+                const schedules = Array.isArray(rawData) ? rawData : [];
+                const container = document.getElementById('scheduleList');
+                container.innerHTML = '';
+
+                if (schedules.length === 0) {
+                    container.innerHTML = '<p style="text-align:center; padding:20px;">🎉 目前沒有排班異動！</p>';
+                    return;
+                }
+
+                schedules.forEach(item => {
+                    const div = document.createElement('div');
+                    div.className = 'cancel-item';
+                    
+                    // 根據角色決定顯示文字
+                    let badge = item.role === 'leave' ? '📤 [您的請假]' : '📥 [您的代班]';
+                    let targetInfo = item.role === 'leave' 
+                        ? `由【 ${item.coverName} 】代班` 
+                        : `幫【 ${item.leaveName} 】代班`; // 這一行補回了代班對象
+                    
+                    div.innerHTML = `
+                        <input type="checkbox" value="${item.recordId}" name="recordId" id="chk_${item.recordId}">
+                        <label for="chk_${item.recordId}">
+                            📅 <b>${item.date}</b> - ${badge}<br>
+                            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${targetInfo}
+                        </label>`;
+                    container.appendChild(div);
+                });
+            } catch (e) {
+                console.error(e);
+            }
         }
 
         async function submitCancel() {
