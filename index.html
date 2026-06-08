@@ -9,7 +9,7 @@
     <style>
         body { font-family: Arial, sans-serif; padding: 20px; box-sizing: border-box; background-color: #f5f5f5; }
         h2 { color: #333; text-align: center; }
-        .form-group { margin-bottom: 15px; background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .form-group { margin-bottom: 15px; background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-top: 10px; }
         label { display: block; margin-bottom: 8px; font-weight: bold; color: #555; }
         input, select, button { width: 100%; padding: 12px; font-size: 16px; margin-top: 5px; box-sizing: border-box; border: 1px solid #ddd; border-radius: 6px; }
         input:focus, select:focus { border-color: #06C755; outline: none; }
@@ -67,14 +67,11 @@
         
         <div class="form-group" style="border: 2px dashed #007AFF; background-color: #f0f7ff;">
             <label style="color:#007AFF; font-size:16px;">✏️ 組織 Leader 名稱異動專區</label>
-            <p style="color:#666; font-size:13px; margin: 0 0 10px 0;">適用於：主管換人、大搬風，可將該主管底下的組員「一鍵整批打包」轉移。</p>
-            
+            <p style="color:#666; font-size:13px; margin: 0 0 10px 0;">適用於：主管換人，可將該主管底下的組員「一鍵整批打包」轉移。</p>
             <label for="adminRenameOldLeader" style="font-size:14px; font-weight:normal;">1. 請選擇欲變更的【舊 Leader】：</label>
             <select id="adminRenameOldLeader"><option value="">-- 請選擇舊 Leader --</option></select>
-            
             <label for="adminRenameNewName" style="font-size:14px; font-weight:normal; margin-top:8px;">2. 請輸入【全新 Leader 姓名】：</label>
-            <input type="text" id="adminRenameNewName" placeholder="請輸入新姓名 (例如: 謝孟勳)">
-            
+            <input type="text" id="adminRenameNewName" placeholder="請輸入新姓名">
             <button onclick="submitLeaderRename()" style="background-color: #007AFF; margin-top:12px;">執行一鍵全組更名轉移</button>
         </div>
 
@@ -115,22 +112,24 @@
                 if (!liff.isLoggedIn()) { liff.login(); return; }
                 const profile = await liff.getProfile();
                 userId = profile.userId;
+
+                // 💡 核心安全優化：先關閉 Loading 遮罩，不讓非同步載入卡死畫面
                 document.getElementById('loading').style.display = 'none';
 
-                allUsers = await fetch(`${GAS_URL}?action=getusers`).then(r => r.json());
-                allLeaders = await fetch(`${GAS_URL}?action=getleaders`).then(r => r.json());
-
                 const urlParams = new URLSearchParams(window.location.search);
+                
                 if (urlParams.get('page') === 'admin') {
                     document.getElementById('adminApp').style.display = 'block';
-                    initAdminLeaderSelect();
-                    chartRawData = await fetch(`${GAS_URL}?action=getchartdata`).then(r => r.json());
-                    buildTeamLeaderChart();
+                    // 異步撈取，即使後台出包，畫面也不會卡死在登入
+                    loadAdminData();
                 } else if (urlParams.get('page') === 'cancel') {
                     document.getElementById('cancelApp').style.display = 'block';
                     await loadMySchedules(); 
                 } else {
                     document.getElementById('leaveApp').style.display = 'block';
+                    allUsers = await fetch(`${GAS_URL}?action=getusers`).then(r => r.json()).catch(e => []);
+                    allLeaders = await fetch(`${GAS_URL}?action=getleaders`).then(r => r.json()).catch(e => []);
+                    
                     const currentUser = allUsers.find(user => user.id === userId);
                     if (currentUser) {
                         realName = currentUser.name;
@@ -140,7 +139,20 @@
                     }
                     renderLeaders(); 
                 }
-            } catch (error) { alert('LINE 登入失敗: ' + error); }
+            } catch (error) { 
+                document.getElementById('loading').innerText = 'LINE 登入異常: ' + error;
+            }
+        }
+
+        // 管理者專用非同步背景載入函數
+        async function loadAdminData() {
+            try {
+                allUsers = await fetch(`${GAS_URL}?action=getusers`).then(r => r.json());
+                allLeaders = await fetch(`${GAS_URL}?action=getleaders`).then(r => r.json());
+                initAdminLeaderSelect();
+                chartRawData = await fetch(`${GAS_URL}?action=getchartdata`).then(r => r.json());
+                buildTeamLeaderChart();
+            } catch(e) { console.error("後台統計載入出錯:", e); }
         }
 
         function renderLeaders() {
@@ -218,44 +230,27 @@
             finally { document.getElementById('cancelBtn').disabled = false; }
         }
 
-        // ==========================================
-        // 後台控制與更名核心函數
-        // ==========================================
         function initAdminLeaderSelect() {
             const select = document.getElementById('adminFilterLeader');
             select.innerHTML = '<option value="">-- 請選擇 Leader --</option>';
-            
             const renameSelect = document.getElementById('adminRenameOldLeader');
             renameSelect.innerHTML = '<option value="">-- 請選擇舊 Leader --</option>';
-
             allLeaders.forEach(l => { 
                 select.innerHTML += `<option value="${l}">${l}</option>`; 
                 renameSelect.innerHTML += `<option value="${l}">${l}</option>`; 
             });
         }
 
-        // 執行一鍵全組主管更名
         async function submitLeaderRename() {
             const oldLeader = document.getElementById('adminRenameOldLeader').value;
             const newLeaderName = document.getElementById('adminRenameNewName').value.trim();
-
             if(!oldLeader) return alert('請選擇要更名的舊主管！');
             if(!newLeaderName) return alert('請輸入全新主管的姓名！');
-
-            if(!confirm(`⚠️ 確定要將【${oldLeader}】正式改名為【${newLeaderName}】嗎？\n這將會一次性把所有綁定在【${oldLeader}】底下的員工與資料庫設定全部整批修改！`)) return;
-
+            if(!confirm(`⚠️ 確定要將【${oldLeader}】正式改名為【${newLeaderName}】嗎？`)) return;
             try {
-                const res = await fetch(GAS_URL, {
-                    method: 'POST',
-                    body: JSON.stringify({ action: 'renameleader', oldLeader: oldLeader, newLeader: newLeaderName })
-                }).then(r => r.json());
-
-                alert(res.message || "更新完畢！");
-                location.reload();
-            } catch (e) {
-                alert("更名動作已送出，請重新整理網頁檢視最新試算表狀態。");
-                location.reload();
-            }
+                const res = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'renameleader', oldLeader: oldLeader, newLeader: newLeaderName }) }).then(r => r.json());
+                alert(res.message || "更新完畢！"); location.reload();
+            } catch (e) { alert("更名動作已送出！"); location.reload(); }
         }
 
         function buildTeamLeaderChart() {
@@ -263,13 +258,10 @@
             const ctx = document.getElementById('teamLeaderChart').getContext('2d');
             const labels = allLeaders;
             const leaveData = [], coverData = [];
-            
             labels.forEach(l => {
                 const stat = chartRawData.leaderStats[l] || { leave: 0, cover: 0 };
-                leaveData.push(stat.leave);
-                coverData.push(stat.cover);
+                leaveData.push(stat.leave); coverData.push(stat.cover);
             });
-
             if(globalLeaderChart) globalLeaderChart.destroy();
             globalLeaderChart = new Chart(ctx, {
                 type: 'bar',
@@ -284,32 +276,23 @@
             });
         }
 
-        function onAdminLeaderChange() {
-            renderAdminMembers();
-            buildMemberChart();
-        }
+        function onAdminLeaderChange() { renderAdminMembers(); buildMemberChart(); }
 
         function buildMemberChart() {
             const selectedLeader = document.getElementById('adminFilterLeader').value;
             const box = document.getElementById('memberChartBox');
             if(!selectedLeader || !chartRawData) { box.style.display = 'none'; return; }
-
             const members = allUsers.filter(u => u.leader === selectedLeader);
             if(members.length === 0) { box.style.display = 'none'; return; }
-
             box.style.display = 'block';
             document.getElementById('memberChartTitle').innerText = `📊 【${selectedLeader}】組內同仁負載細緻分析`;
-
             const ctx = document.getElementById('memberChart').getContext('2d');
             const labels = members.map(m => m.name);
             const leaveData = [], coverData = [];
-
             members.map(m => m.name).forEach(name => {
                 const stat = chartRawData.memberStats[name] || { leave: 0, cover: 0 };
-                leaveData.push(stat.leave);
-                coverData.push(stat.cover);
+                leaveData.push(stat.leave); coverData.push(stat.cover);
             });
-
             if(globalMemberChart) globalMemberChart.destroy();
             globalMemberChart = new Chart(ctx, {
                 type: 'bar',
@@ -328,13 +311,9 @@
             const selectedLeader = document.getElementById('adminFilterLeader').value;
             const container = document.getElementById('adminContainer');
             container.innerHTML = '';
-            if (!selectedLeader) {
-                container.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">請先從上方選擇 Leader 以列出成員名單</p>'; return;
-            }
+            if (!selectedLeader) { container.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">請先從上方選擇 Leader 以列出成員名單</p>'; return; }
             const members = allUsers.filter(u => u.leader === selectedLeader);
-            if (members.length === 0) {
-                container.innerHTML = `<p style="color: #666; text-align: center; padding: 20px;">💡 目前【${selectedLeader}】組內沒有註冊成員。</p>'; return;
-            }
+            if (members.length === 0) { container.innerHTML = `<p style="color: #666; text-align: center; padding: 20px;">💡 目前【${selectedLeader}】組內沒有註冊成員。</p>`; return; }
             members.forEach(u => {
                 container.innerHTML += `
                     <div class="card">
@@ -350,6 +329,7 @@
             });
         }
 
+        // 💡 前端的大寫 action: 'updateUserLeader' 完美對齊後台判定
         async function updateLeader(uId) {
             const newLeader = document.getElementById('sel_'+uId).value;
             const effectiveDate = document.getElementById('date_'+uId).value;
