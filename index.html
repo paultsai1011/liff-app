@@ -65,11 +65,9 @@
         async function initLIFF() {
             await liff.init({ liffId: LIFF_ID });
             if (!liff.isLoggedIn()) { liff.login(); return; }
-            
             const profile = await liff.getProfile();
             userId = profile.userId;
             
-            // 載入資料
             allUsers = await fetch(`${GAS_URL}?action=getusers`).then(r => r.json());
             allLeaders = await fetch(`${GAS_URL}?action=getleaders`).then(r => r.json());
 
@@ -89,14 +87,12 @@
             }
         }
 
-        // 動態載入 Leader 選單
         function renderLeaders() {
             const sel = document.getElementById('leaderSelect');
             sel.innerHTML = '<option value="">-- 請選擇 Leader --</option>';
             allLeaders.forEach(l => sel.innerHTML += `<option value="${l}">${l}</option>`);
         }
 
-        // 篩選組員
         function filterUsersByLeader() {
             const val = document.getElementById('leaderSelect').value;
             const sel = document.getElementById('coverUser');
@@ -105,31 +101,50 @@
             sel.disabled = false;
         }
 
-        // 管理員介面渲染
-        function renderAdmin() {
-            const container = document.getElementById('adminContainer');
-            allUsers.forEach(u => {
-                container.innerHTML += `
-                    <div class="card">
-                        <b>${u.name}</b><br>
-                        <select id="sel_${u.id}">
-                            ${allLeaders.map(l => `<option value="${l}" ${u.leader===l?'selected':''}>${l}</option>`).join('')}
-                        </select>
-                        <button onclick="updateLeader('${u.id}')">更新 Leader</button>
-                    </div>
-                `;
+        async function submitForm() {
+            const leaveDate = document.getElementById('leaveDate').value;
+            const coverUser = document.getElementById('coverUser').value;
+            if (!leaveDate || !coverUser) { alert('請填寫日期並選擇代班人！'); return; }
+
+            document.getElementById('submitBtn').disabled = true;
+            try {
+                const response = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'applyLeave', userId, leaveDate, coverUser }) });
+                const result = await response.json();
+                alert(result.status === 'success' ? '🎉 申請成功！' : '⚠️ 申請失敗：' + result.message);
+                if (result.status === 'success') liff.closeWindow();
+            } catch (e) { alert('連線失敗，請檢查網路。'); } finally { document.getElementById('submitBtn').disabled = false; }
+        }
+
+        async function loadMySchedules() {
+            const res = await fetch(`${GAS_URL}?action=getmymanageablecovers&userId=${userId}`);
+            const data = await res.json();
+            const list = document.getElementById('scheduleList');
+            data.forEach(item => {
+                list.innerHTML += `<div class="cancel-item"><input type="checkbox" value="${item.recordId}" name="recordId"> <label>${item.date} - ${item.role=='leave'?'📤 請假':'📥 代班'}</label></div>`;
             });
         }
 
-        // 更新組織架構
+        async function submitCancel() {
+            const ids = Array.from(document.querySelectorAll('input[name="recordId"]:checked')).map(i => i.value);
+            if (ids.length === 0) return alert('請勾選項目');
+            await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'cancelSpecificCovers', selectedIds: ids, operatorUserId: userId }) });
+            alert('🚨 已完成撤銷。');
+            liff.closeWindow();
+        }
+
+        function renderAdmin() {
+            const container = document.getElementById('adminContainer');
+            allUsers.forEach(u => {
+                container.innerHTML += `<div class="card">${u.name}<br><select id="sel_${u.id}">${allLeaders.map(l => `<option value="${l}" ${u.leader===l?'selected':''}>${l}</option>`).join('')}</select><button onclick="updateLeader('${u.id}')">變更</button></div>`;
+            });
+        }
+
         async function updateLeader(uId) {
-            const newLeader = document.getElementById('sel_'+uId).value;
-            await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'updateUserLeader', userId: uId, newLeader: newLeader })});
-            alert("更新成功！");
+            await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'updateUserLeader', userId: uId, newLeader: document.getElementById('sel_'+uId).value })});
+            alert("更新成功");
             location.reload();
         }
 
-        // 其他功能 (submitForm, loadMySchedules, submitCancel 等請保留您原本的邏輯)
         window.onload = initLIFF;
     </script>
 </body>
